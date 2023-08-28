@@ -1,4 +1,5 @@
-# Ultralytics YOLO 🚀, GPL-3.0 license
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+
 import signal
 import sys
 from pathlib import Path
@@ -6,8 +7,9 @@ from time import sleep
 
 import requests
 
-from ultralytics.hub.utils import HUB_API_ROOT, PREFIX, check_dataset_disk_space, smart_request
-from ultralytics.yolo.utils import LOGGER, __version__, checks, emojis, is_colab, threaded
+from ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX, smart_request
+from ultralytics.utils import LOGGER, __version__, checks, emojis, is_colab, threaded
+from ultralytics.utils.errors import HUBModelError
 
 AGENT_NAME = f'python-{__version__}-colab' if is_colab() else f'python-{__version__}-local'
 
@@ -24,11 +26,11 @@ class HUBTrainingSession:
         model_id (str): Identifier for the YOLOv5 model being trained.
         model_url (str): URL for the model in Ultralytics HUB.
         api_url (str): API URL for the model in Ultralytics HUB.
-        auth_header (Dict): Authentication header for the Ultralytics HUB API requests.
-        rate_limits (Dict): Rate limits for different API calls (in seconds).
-        timers (Dict): Timers for rate limiting.
-        metrics_queue (Dict): Queue for the model's metrics.
-        model (Dict): Model data fetched from Ultralytics HUB.
+        auth_header (dict): Authentication header for the Ultralytics HUB API requests.
+        rate_limits (dict): Rate limits for different API calls (in seconds).
+        timers (dict): Timers for rate limiting.
+        metrics_queue (dict): Queue for the model's metrics.
+        model (dict): Model data fetched from Ultralytics HUB.
         alive (bool): Indicates if the heartbeat loop is active.
     """
 
@@ -48,20 +50,21 @@ class HUBTrainingSession:
         from ultralytics.hub.auth import Auth
 
         # Parse input
-        if url.startswith('https://hub.ultralytics.com/models/'):
-            url = url.split('https://hub.ultralytics.com/models/')[-1]
+        if url.startswith(f'{HUB_WEB_ROOT}/models/'):
+            url = url.split(f'{HUB_WEB_ROOT}/models/')[-1]
         if [len(x) for x in url.split('_')] == [42, 20]:
             key, model_id = url.split('_')
         elif len(url) == 20:
             key, model_id = '', url
         else:
-            raise ValueError(f'Invalid HUBTrainingSession input: {url}')
+            raise HUBModelError(f"model='{url}' not found. Check format is correct, i.e. "
+                                f"model='{HUB_WEB_ROOT}/models/MODEL_ID' and try again.")
 
         # Authorize
         auth = Auth(key)
         self.agent_id = None  # identifies which instance is communicating with server
         self.model_id = model_id
-        self.model_url = f'https://hub.ultralytics.com/models/{model_id}'
+        self.model_url = f'{HUB_WEB_ROOT}/models/{model_id}'
         self.api_url = f'{HUB_API_ROOT}/v1/models/{model_id}'
         self.auth_header = auth.get_auth_header()
         self.rate_limits = {'metrics': 3.0, 'ckpt': 900.0, 'heartbeat': 300.0}  # rate limits (seconds)
@@ -122,7 +125,7 @@ class HUBTrainingSession:
                     'device': data['device'],
                     'cache': data['cache'],
                     'data': data['data']}
-                self.model_file = data.get('cfg', data['weights'])
+                self.model_file = data.get('cfg') or data.get('weights')  # cfg for pretrained=False
                 self.model_file = checks.check_yolov5u_filename(self.model_file, verbose=False)  # YOLOv5->YOLOv5u
             elif data['status'] == 'training':  # existing model to resume training
                 self.train_args = {'data': data['data'], 'resume': True}
@@ -133,11 +136,6 @@ class HUBTrainingSession:
             raise ConnectionRefusedError('ERROR: The HUB server is not online. Please try again later.') from e
         except Exception:
             raise
-
-    def check_disk_space(self):
-        """Check if there is enough disk space for the dataset."""
-        if not check_dataset_disk_space(url=self.model['data']):
-            raise MemoryError('Not enough disk space')
 
     def upload_model(self, epoch, weights, is_best=False, map=0.0, final=False):
         """

@@ -1,11 +1,11 @@
-# Ultralytics YOLO 🚀, GPL-3.0 license
+# Ultralytics YOLO 🚀, AGPL-3.0 license
 
 import requests
 
-from ultralytics.hub.utils import HUB_API_ROOT, PREFIX, request_with_credentials
-from ultralytics.yolo.utils import LOGGER, SETTINGS, emojis, is_colab, set_settings
+from ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX, request_with_credentials
+from ultralytics.utils import LOGGER, SETTINGS, emojis, is_colab
 
-API_KEY_URL = 'https://hub.ultralytics.com/settings?tab=api+keys'
+API_KEY_URL = f'{HUB_WEB_ROOT}/settings?tab=api+keys'
 
 
 class Auth:
@@ -45,7 +45,7 @@ class Auth:
 
         # Update SETTINGS with the new API key after successful authentication
         if success:
-            set_settings({'api_key': self.api_key})
+            SETTINGS.update({'api_key': self.api_key})
             # Log that the new login was successful
             if verbose:
                 LOGGER.info(f'{PREFIX}New authentication successful ✅')
@@ -73,8 +73,7 @@ class Auth:
             bool: True if authentication is successful, False otherwise.
         """
         try:
-            header = self.get_auth_header()
-            if header:
+            if header := self.get_auth_header():
                 r = requests.post(f'{HUB_API_ROOT}/v1/auth', headers=header)
                 if not r.json().get('success', False):
                     raise ConnectionError('Unable to authenticate.')
@@ -111,29 +110,10 @@ class Auth:
         Get the authentication header for making API requests.
 
         Returns:
-            dict: The authentication header if id_token or API key is set, None otherwise.
+            (dict): The authentication header if id_token or API key is set, None otherwise.
         """
         if self.id_token:
             return {'authorization': f'Bearer {self.id_token}'}
         elif self.api_key:
             return {'x-api-key': self.api_key}
-        else:
-            return None
-
-    def get_state(self) -> bool:
-        """
-        Get the authentication state.
-
-        Returns:
-            bool: True if either id_token or API key is set, False otherwise.
-        """
-        return self.id_token or self.api_key
-
-    def set_api_key(self, key: str):
-        """
-        Set the API key for authentication.
-
-        Args:
-            key (str): The API key string.
-        """
-        self.api_key = key
+        # else returns None
